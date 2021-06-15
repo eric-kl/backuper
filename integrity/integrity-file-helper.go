@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"time"
 )
 
 func WriteFile(file IntegrityFile, filePath string) error {
@@ -38,4 +40,9 @@ func ReadFile(path string) (IntegrityFile, error) {
 	}
 
 	return fileContent, nil
+}
+
+func CreateFile(targetPath string) IntegrityFile {
+	agnosticPath := filepath.ToSlash(targetPath)
+	return IntegrityFile{TargetPath: agnosticPath, ModificationTimeStamp: time.Now()}
 }

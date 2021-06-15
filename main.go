@@ -34,62 +34,27 @@ func main() {
 		return
 	}
 
-	if update {
-		err = updateAndWriteIntegrityFile(config.Target, config.IntegrityPath, &integrityFile)
-
-		if err != nil {
-			fmt.Println(err.Error())
-			return
-		}
-	}
-
-	//if no update just show dif
-	dif, err := integrity.GetIntegrityDif(config.Target, &integrityFile)
+	dif, err := integrity.GetDifAndPrint(&integrityFile)
 
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	isFilesAdded := len(dif.AddedFiles) != 0
-	isFilesRemoved := len(dif.RemovedFiles) != 0
-	isFilesChanged := len(dif.ChangedFiles) != 0
+	if update {
+		err = updateAndWriteIntegrityFile(&dif, config.IntegrityPath, &integrityFile)
 
-	if !isFilesAdded && !isFilesChanged && !isFilesRemoved {
-		fmt.Println("No Changes, Integrity is up to date")
-	}
-
-	if isFilesAdded {
-		fmt.Println("Added Files:")
-		for _, entry := range dif.AddedFiles {
-			fmt.Println(entry.Path)
+		if err != nil {
+			fmt.Println(err.Error())
+			return
 		}
 	}
-
-	if isFilesRemoved {
-		fmt.Println("Removed Files:")
-		for _, entry := range dif.RemovedFiles {
-			fmt.Println(entry.Path)
-		}
-	}
-
-	if isFilesChanged {
-		fmt.Println("Changed Files:")
-		for _, entry := range dif.ChangedFiles {
-			fmt.Println(entry.Path)
-		}
-	}
-
 }
 
-func updateAndWriteIntegrityFile(pathToTarget string, pathToIntegrityFile string, integrityFile *integrity.IntegrityFile) error {
-	newIntegrityFile, err := integrity.UpdateIntegrityFile(pathToTarget, integrityFile)
+func updateAndWriteIntegrityFile(dif *integrity.IntegrityDif, pathToIntegrityFile string, integrityFile *integrity.IntegrityFile) error {
+	newIntegrityFile := integrity.UpdateIntegrityFile(dif, integrityFile)
 
-	if err != nil {
-		return err
-	}
-
-	err = integrity.WriteFile(newIntegrityFile, pathToIntegrityFile)
+	err := integrity.WriteFile(newIntegrityFile, pathToIntegrityFile)
 
 	if err != nil {
 		return err
@@ -103,7 +68,7 @@ func readOrCreateIntegrityFile(pathToIntegrityFile string, targetPath string) (i
 	_, err := os.Stat(pathToIntegrityFile)
 	if err != nil {
 		fmt.Println("no integrity file found at " + pathToIntegrityFile + " will continue with an empty file")
-		return integrity.IntegrityFile{}, nil
+		return integrity.CreateFile(targetPath), nil
 	}
 
 	return integrity.ReadFile(pathToIntegrityFile)

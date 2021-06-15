@@ -3,24 +3,16 @@ package integrity
 import (
 	"os"
 	"path/filepath"
+	"time"
 )
 
-func CreateIntegrityFileForPath(path string) (IntegrityFile, error) {
-	return UpdateIntegrityFile(path, &IntegrityFile{})
-}
-
-func UpdateIntegrityFile(pathToTarget string, integrityFile *IntegrityFile) (IntegrityFile, error) {
-	dif, err := GetIntegrityDif(pathToTarget, integrityFile)
-
-	if err != nil {
-		return IntegrityFile{}, err
-	}
-
+func UpdateIntegrityFile(dif *IntegrityDif, integrityFile *IntegrityFile) IntegrityFile {
 	//Map file entries to map for fast and easy manipulation
-	var integrityMap = make(map[string]IntegrityEntry)
-	for _, integrityEntry := range integrityFile.Entries {
-		integrityMap[integrityEntry.Path] = integrityEntry
-	}
+	//var integrityMap = make(map[string]IntegrityEntry)
+	//for _, integrityEntry := range integrityFile.Entries {
+	//	integrityMap[integrityEntry.Path] = integrityEntry
+	//}
+	integrityMap := integrityFile.EntriesMap()
 
 	//remove lost files
 	for _, entry := range dif.RemovedFiles {
@@ -37,21 +29,23 @@ func UpdateIntegrityFile(pathToTarget string, integrityFile *IntegrityFile) (Int
 		integrityMap[entry.Path] = entry
 	}
 
+	integrityFile.ModificationTimeStamp = dif.CreationTime
 	integrityFile.Entries = []IntegrityEntry{}
 	for _, entry := range integrityMap {
 		integrityFile.Entries = append(integrityFile.Entries, entry)
 	}
 
-	return *integrityFile, nil
+	return *integrityFile
 }
 
 func GetIntegrityDif(pathToTarget string, integrityFile *IntegrityFile) (IntegrityDif, error) {
-	var dif IntegrityDif
+	var dif = IntegrityDif{CreationTime: time.Now()}
 
-	var integrityMap = make(map[string]IntegrityEntry)
-	for _, integrityEntry := range integrityFile.Entries {
-		integrityMap[integrityEntry.Path] = integrityEntry
-	}
+	//var integrityMap = make(map[string]IntegrityEntry)
+	//for _, integrityEntry := range integrityFile.Entries {
+	//	integrityMap[integrityEntry.Path] = integrityEntry
+	//}
+	integrityMap := integrityFile.EntriesMap()
 
 	err := filepath.Walk(pathToTarget, func(pathToFile string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -62,7 +56,11 @@ func GetIntegrityDif(pathToTarget string, integrityFile *IntegrityFile) (Integri
 			return nil
 		}
 
-		entry, exists := integrityMap[pathToFile]
+		//Turn path into a relative path
+		relativePath := pathToFile[len(pathToTarget):]
+		osAgnosticPath := filepath.ToSlash(relativePath)
+
+		entry, exists := integrityMap[osAgnosticPath]
 		if !exists {
 			//Add to added list if not exists
 			hash, err := hash_file_md5(pathToFile)
@@ -71,7 +69,7 @@ func GetIntegrityDif(pathToTarget string, integrityFile *IntegrityFile) (Integri
 				return err
 			}
 
-			dif.AddedFiles = append(dif.AddedFiles, IntegrityEntry{Path: pathToFile, Checksum: hash, ChangeDate: info.ModTime()})
+			dif.AddedFiles = append(dif.AddedFiles, IntegrityEntry{Path: osAgnosticPath, Checksum: hash, ChangeDate: info.ModTime()})
 			return nil
 		}
 
@@ -93,7 +91,7 @@ func GetIntegrityDif(pathToTarget string, integrityFile *IntegrityFile) (Integri
 			return nil //Its actually still the same file, no write neccessary
 		}
 
-		dif.ChangedFiles = append(dif.ChangedFiles, IntegrityEntry{Path: pathToFile, Checksum: hash, ChangeDate: info.ModTime()})
+		dif.ChangedFiles = append(dif.ChangedFiles, IntegrityEntry{Path: osAgnosticPath, Checksum: hash, ChangeDate: info.ModTime()})
 		return nil
 	})
 
@@ -106,4 +104,34 @@ func GetIntegrityDif(pathToTarget string, integrityFile *IntegrityFile) (Integri
 	}
 
 	return dif, nil
+}
+
+func DifBetweenIntegrityFiles(fileA *IntegrityFile, fileB *IntegrityFile) IntegrityDif {
+	//var integrityMap = make(map[string]IntegrityEntry)
+	//for _, integrityEntry := range fileA.Entries {
+	//	integrityMap[integrityEntry.Path] = integrityEntry
+	//}
+
+	integrityMap := fileA.EntriesMap()
+
+	var dif = IntegrityDif{CreationTime: time.Now()}
+
+	for _, entryB := range fileB.Entries {
+		entryA, exists := integrityMap[entryB.Path]
+		if !exists {
+			dif.AddedFiles = append(dif.AddedFiles, entryB)
+			continue
+		}
+
+		if entryA.ChangeDate != entryB.ChangeDate && entryA.Checksum != entryB.Checksum {
+			dif.ChangedFiles = append(dif.ChangedFiles, entryB)
+		}
+		delete(integrityMap, entryA.Path)
+	}
+
+	for _, entryA := range integrityMap {
+		dif.RemovedFiles = append(dif.RemovedFiles, entryA)
+	}
+
+	return dif
 }
